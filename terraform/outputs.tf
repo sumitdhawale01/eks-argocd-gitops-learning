@@ -23,3 +23,9 @@ output "configure_kubectl" {
   description = "Run this after apply to point kubectl at the new cluster"
   value       = "aws eks update-kubeconfig --region ${var.region} --name ${module.eks.cluster_name}"
 }
+
+output "argocd_admin_password" {
+  description = "Run: terraform output -raw argocd_admin_password"
+  value       = module.argocd.admin_password
+  sensitive   = true
+}
