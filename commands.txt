@@ -1,0 +1,93 @@
+#!/bin/bash
+# ============================================
+# EC2 Setup Script — EKS + ArgoCD GitOps Project
+# Run this once on a fresh Amazon Linux EC2 instance
+# ============================================
+
+# --- 1. Update system packages ---
+sudo dnf update -y
+
+# --- 2. Git — needed to clone/push the repo ---
+sudo dnf install -y git
+
+# --- 3. Docker — needed to build the app's container image ---
+sudo dnf install -y docker
+sudo systemctl enable --now docker              # start Docker and enable on boot
+sudo usermod -aG docker ec2-user                # let ec2-user run docker without sudo
+newgrp docker                                   # apply the group change in this session
+
+# --- 4. AWS CLI v2 — needed for ECR login, EKS kubeconfig, terraform provider, etc. ---
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+sudo dnf install -y unzip
+unzip awscliv2.zip
+sudo ./aws/install
+rm -rf awscliv2.zip aws/
+aws --version                                   # sanity check
+
+# Configure AWS credentials directly (non-interactive)
+# Replace the placeholder values below before running, or run these manually.
+aws configure set aws_access_key_id     "YOUR_ACCESS_KEY_ID"
+aws configure set aws_secret_access_key "YOUR_SECRET_ACCESS_KEY"
+aws configure set region                "ap-south-1"
+aws configure set output                "json"
+
+# --- 5. kubectl — needed to talk to the EKS cluster ---
+curl -LO "https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+kubectl version --client                        # sanity check
+
+# --- 6. Terraform — needed to provision VPC/EKS/ECR/ALB-controller/ArgoCD ---
+sudo dnf install -y yum-utils
+sudo dnf config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+sudo dnf install -y terraform
+terraform version                               # sanity check
+
+# --- 7. Helm — needed because Terraform uses helm_release for ALB controller + ArgoCD ---
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+chmod +x get_helm.sh
+./get_helm.sh
+rm get_helm.sh
+helm version                                    # sanity check
+
+# ============================================
+# Manual steps AFTER running this script (on EC2):
+# ============================================
+
+# A. Set your Git identity (avoids the auto-detected-from-hostname warning)
+#    git config --global user.name "Sumit Dhawale"
+#    git config --global user.email "your-email@example.com"
+
+# B. Clone the repo
+#    git clone https://github.com/sumitdhawale01/eks-argocd-gitops-learning.git
+#    cd eks-argocd-gitops-learning
+
+# C. If the EKS cluster ALREADY exists (i.e. you're not running terraform apply
+#    fresh), point kubectl at it:
+#    aws eks update-kubeconfig --region ap-south-1 --name github-action-eks-cluster
+
+# ============================================
+# GITHUB-SIDE SETUP — NOT run on EC2, done in the browser.
+# Required so GitHub Actions (CI) can authenticate to AWS and push to ECR.
+# Without this, ci.yaml will fail at "Configure AWS credentials".
+# ============================================
+#
+# Go to: GitHub repo → Settings → Secrets and variables → Actions → Secrets tab
+# → "New repository secret" → add BOTH of these:
+#
+#   Name: AWS_ACCESS_KEY_ID       Value: <your AWS access key>
+#   Name: AWS_SECRET_ACCESS_KEY   Value: <your AWS secret key>
+#
+# NOTE: Secrets are per-repository — if you clone this into a NEW repo,
+# you must re-add both secrets there too; they do NOT carry over.
+#
+# NOTE: These need to be added under Secrets, not Variables — secrets are
+# encrypted and hidden in logs; variables are plain text and NOT suitable
+# for credentials.
+
+# ============================================
+# OPTIONAL — only if you want to run `npm test` locally for debugging.
+# Not required for the actual CI/CD or Terraform/kubectl flow.
+# ============================================
+# curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+# sudo dnf install -y nodejs
